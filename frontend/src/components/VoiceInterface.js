@@ -156,7 +156,7 @@ const LoadingDots = styled.div`
 
 const VoiceInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
-  const [status, setStatus] = useState('Click the button to start recording');
+  const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done');
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
