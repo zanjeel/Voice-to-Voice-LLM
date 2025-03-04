@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 const Wrapper = styled.div`
   min-height: 100vh;
   height: 100vh;
@@ -210,7 +212,7 @@ const VoiceInterface = () => {
     setIsProcessing(true);
     try {
       console.log('Sending audio to server...');
-      const response = await axios.post('http://localhost:5000/api/process-audio', {
+      const response = await axios.post(`${API_URL}/api/process-audio`, {
         audio: audioData
       }, {
         headers: {
