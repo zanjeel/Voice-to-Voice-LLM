@@ -238,7 +238,7 @@ const VoiceInterface = () => {
         setStatus('Error playing audio response: ' + e.message);
       };
       audio.onended = () => {
-        setStatus('Click the button to start recording');
+        setStatus('Click the button to start speaking and Click again when you are done');
       };
       await audio.play();
     } catch (error) {
