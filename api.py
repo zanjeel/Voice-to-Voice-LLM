@@ -23,7 +23,14 @@ app = Flask(__name__)
 # Configure CORS with more permissive settings
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "https://*.vercel.app",
+            "https://*.now.sh",
+            "https://*.netlify.app",
+            "https://*.netlify.com"
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
