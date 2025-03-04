@@ -4,9 +4,7 @@ A Python-based conversational AI assistant that uses speech recognition and text
 
 ## Demo
 
-Watch the demonstration of the AI Assistant in action:
-
-![AI Assistant Demo](media/demo.mp4)
+[Watch Demo Video](https://github.com/zanjeel/Voice-to-Voice-LLM/blob/master/media/demo.mp4)
 
 ## Features
 
