@@ -89,7 +89,7 @@ python-dotenv==1.0.1
 PyAudio==0.2.14
 ```
 
-## Security Notes
+## Security Notes.
 
 - Never commit your `.env` file or any files containing API keys to version control
 - Keep your API keys secure and don't share them publicly
