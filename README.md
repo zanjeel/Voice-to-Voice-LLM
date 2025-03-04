@@ -45,10 +45,16 @@ myenv\Scripts\activate  # On Windows
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file in the project root and add your Google API key:
-```
-GOOGLE_API_KEY=your-api-key-here
-```
+4. Set up environment variables:
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Edit `.env` and add your Google API key:
+     ```
+     GOOGLE_API_KEY=your-actual-api-key
+     ```
+   - Never commit your `.env` file to version control
 
 ## Usage
 
@@ -82,6 +88,12 @@ pydub==0.25.1
 python-dotenv==1.0.1
 PyAudio==0.2.14
 ```
+
+## Security Notes
+
+- Never commit your `.env` file or any files containing API keys to version control
+- Keep your API keys secure and don't share them publicly
+- The `.env` file is already included in `.gitignore` to prevent accidental commits
 
 ## Note
 
