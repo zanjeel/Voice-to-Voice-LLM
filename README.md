@@ -2,6 +2,12 @@
 
 A Python-based conversational AI assistant that uses speech recognition and text-to-speech capabilities to create an interactive voice interface. The assistant uses Google's Gemini AI for natural language processing and Google's Speech Recognition for voice input.
 
+## Demo
+
+Watch the demonstration of the AI Assistant in action:
+
+![AI Assistant Demo](media/demo.mp4)
+
 ## Features
 
 - Real-time speech recognition using Google Speech Recognition
