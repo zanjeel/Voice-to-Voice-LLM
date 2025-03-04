@@ -1,5 +1,7 @@
 # Witty AI Voice Assistant
 
+![Demo Screenshot](./media/demo-photo.png)
+
 A conversational AI assistant that uses speech-to-text and text-to-speech capabilities, powered by Google's Gemini AI. The assistant is designed to be witty and engaging, providing humorous responses in a natural, conversational style.
 
 ## Live Demo
