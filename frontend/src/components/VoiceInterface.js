@@ -164,33 +164,57 @@ const VoiceInterface = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true
+        } 
+      });
       
-      // Prioritize widely supported audio formats
+      // Try simpler MIME types first, especially for mobile
       const mimeTypes = [
         'audio/webm',
-        'audio/webm;codecs=opus',
         'audio/mp4',
-        'audio/ogg'
+        'audio/ogg',
+        'audio/webm;codecs=opus',
+        'audio/webm;codecs=pcm',
+        'audio/wav'
       ];
       
       let selectedMimeType = null;
+      
+      // First try to find a supported type
       for (const type of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          selectedMimeType = type;
-          break;
+        try {
+          if (MediaRecorder.isTypeSupported(type)) {
+            selectedMimeType = type;
+            console.log('Found supported MIME type:', type);
+            break;
+          }
+        } catch (e) {
+          console.log('Error checking MIME type:', type, e);
         }
       }
       
+      // If no supported type found, try to create a MediaRecorder without specifying type
       if (!selectedMimeType) {
-        throw new Error('No supported audio MIME type found on this device');
+        console.log('No explicit MIME type supported, trying default...');
+        try {
+          const recorder = new MediaRecorder(stream);
+          selectedMimeType = recorder.mimeType;
+          recorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.error('Error creating default MediaRecorder:', e);
+          throw new Error('Your browser does not support any compatible audio recording format');
+        }
       }
 
-      console.log('Using MIME type:', selectedMimeType);
+      console.log('Final selected MIME type:', selectedMimeType);
 
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: selectedMimeType
-      });
+      // Create the MediaRecorder with minimal options
+      mediaRecorderRef.current = new MediaRecorder(stream);
       
       audioChunksRef.current = [];
 
@@ -204,8 +228,8 @@ const VoiceInterface = () => {
       mediaRecorderRef.current.onstop = async () => {
         try {
           console.log('Recording stopped, processing audio...');
-          const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
-          console.log('Audio blob created:', audioBlob.size, 'bytes, type:', selectedMimeType);
+          const audioBlob = new Blob(audioChunksRef.current);
+          console.log('Audio blob created:', audioBlob.size, 'bytes');
           
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
@@ -213,7 +237,7 @@ const VoiceInterface = () => {
             try {
               const base64Audio = reader.result.split(',')[1];
               console.log('Audio converted to base64, length:', base64Audio.length);
-              await processAudio(base64Audio, selectedMimeType);
+              await processAudio(base64Audio, mediaRecorderRef.current.mimeType);
             } catch (error) {
               console.error('Error processing base64 audio:', error);
               setStatus('Error processing audio: ' + error.message);
