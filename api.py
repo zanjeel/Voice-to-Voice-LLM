@@ -64,8 +64,8 @@ def process_audio(audio_data, mime_type=None):
         if mime_type:
             logger.debug(f"Processing MIME type: {mime_type}")
             if 'mp4' in mime_type or 'x-m4a' in mime_type:
-                input_path = os.path.join(temp_dir, 'input.m4a')
-                input_format = 'm4a'
+                input_path = os.path.join(temp_dir, 'input.mp4')
+                input_format = 'mp4'
             elif 'webm' in mime_type:
                 input_path = os.path.join(temp_dir, 'input.webm')
                 input_format = 'webm'
@@ -98,19 +98,15 @@ def process_audio(audio_data, mime_type=None):
             try:
                 logger.debug("Starting FFmpeg conversion")
                 
-                # Convert to WAV using FFmpeg with more robust settings for mobile audio
+                # Try simpler conversion first
                 convert_cmd = [
                     'ffmpeg',
                     '-y',  # Overwrite output file
-                    '-f', input_format,  # Force input format
                     '-i', input_path,  # Input file
                     '-vn',  # No video
                     '-acodec', 'pcm_s16le',  # Output codec
                     '-ac', '1',  # Mono
                     '-ar', '16000',  # 16kHz sample rate
-                    '-f', 'wav',  # Force WAV format
-                    '-loglevel', 'warning',  # Show warnings and errors
-                    '-strict', 'experimental',  # Allow experimental codecs
                     wav_path  # Output file
                 ]
                 
@@ -118,21 +114,19 @@ def process_audio(audio_data, mime_type=None):
                 result = subprocess.run(convert_cmd, capture_output=True, text=True)
                 
                 if result.returncode != 0:
-                    logger.error(f"FFmpeg conversion failed with return code: {result.returncode}")
-                    logger.error(f"FFmpeg stderr: {result.stderr}")
-                    logger.error(f"FFmpeg stdout: {result.stdout}")
+                    logger.error(f"First conversion attempt failed: {result.stderr}")
                     
-                    # Try alternative conversion approach if first attempt fails
+                    # Try alternative approach with format forcing
                     logger.debug("Attempting alternative conversion approach")
                     alt_convert_cmd = [
                         'ffmpeg',
                         '-y',
+                        '-f', input_format,
                         '-i', input_path,
                         '-vn',
                         '-acodec', 'pcm_s16le',
                         '-ac', '1',
                         '-ar', '16000',
-                        '-f', 'wav',
                         wav_path
                     ]
                     
