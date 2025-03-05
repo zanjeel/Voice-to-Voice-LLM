@@ -1,10 +1,14 @@
-FROM python:3.12-slim
+FROM ubuntu:22.04
 
-# Install system dependencies including FFmpeg
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python, FFmpeg and other dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3-pip \
     ffmpeg \
-    libavcodec-extra \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -14,7 +18,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
@@ -24,4 +28,4 @@ ENV PORT=5000
 EXPOSE 5000
 
 # Command to run the application
-CMD ["python", "api.py"] 
+CMD ["python3", "api.py"] 
