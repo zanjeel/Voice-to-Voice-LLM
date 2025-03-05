@@ -166,12 +166,12 @@ const VoiceInterface = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Check for supported MIME types
+      // Prioritize widely supported audio formats
       const mimeTypes = [
         'audio/webm',
+        'audio/webm;codecs=opus',
         'audio/mp4',
-        'audio/ogg',
-        'audio/wav'
+        'audio/ogg'
       ];
       
       let selectedMimeType = null;
@@ -186,6 +186,8 @@ const VoiceInterface = () => {
         throw new Error('No supported audio MIME type found on this device');
       }
 
+      console.log('Using MIME type:', selectedMimeType);
+
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: selectedMimeType
       });
@@ -193,25 +195,37 @@ const VoiceInterface = () => {
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        console.log('Data available:', event.data.size, 'bytes');
-        audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) {
+          console.log('Data available:', event.data.size, 'bytes');
+          audioChunksRef.current.push(event.data);
+        }
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        console.log('Recording stopped, processing audio...');
-        const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
-        console.log('Audio blob created:', audioBlob.size, 'bytes');
-        
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = async () => {
-          const base64Audio = reader.result.split(',')[1];
-          console.log('Audio converted to base64, length:', base64Audio.length);
-          await processAudio(base64Audio);
-        };
+        try {
+          console.log('Recording stopped, processing audio...');
+          const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
+          console.log('Audio blob created:', audioBlob.size, 'bytes, type:', selectedMimeType);
+          
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            try {
+              const base64Audio = reader.result.split(',')[1];
+              console.log('Audio converted to base64, length:', base64Audio.length);
+              await processAudio(base64Audio, selectedMimeType);
+            } catch (error) {
+              console.error('Error processing base64 audio:', error);
+              setStatus('Error processing audio: ' + error.message);
+            }
+          };
+        } catch (error) {
+          console.error('Error handling audio data:', error);
+          setStatus('Error handling audio: ' + error.message);
+        }
       };
 
-      mediaRecorderRef.current.start(100); // Collect data every 100ms
+      mediaRecorderRef.current.start(250);
       setIsRecording(true);
       setStatus('Recording... Speak now');
     } catch (error) {
@@ -230,19 +244,21 @@ const VoiceInterface = () => {
     }
   };
 
-  const processAudio = async (audioData) => {
+  const processAudio = async (audioData, mimeType) => {
     setIsProcessing(true);
     try {
-      console.log('Sending audio to server...');
+      console.log('Sending audio to server with MIME type:', mimeType);
       const response = await axios.post(`${API_URL}/api/process-audio`, {
-        audio: audioData
+        audio: audioData,
+        mimeType: mimeType
       }, {
         headers: {
           'Content-Type': 'application/json',
-        }
+        },
+        timeout: 30000
       });
 
-      console.log('Server response received:', response.data);
+      console.log('Server response received');
 
       if (response.data.error) {
         console.error('Server returned error:', response.data.error);
@@ -253,7 +269,6 @@ const VoiceInterface = () => {
       setTranscript(response.data.transcript);
       setStatus('Playing response...');
 
-      // Play the response audio
       const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
       audio.onerror = (e) => {
         console.error('Error playing audio:', e);

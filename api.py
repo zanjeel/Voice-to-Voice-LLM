@@ -50,26 +50,36 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-def process_audio(audio_data):
+def process_audio(audio_data, mime_type=None):
     try:
-        logger.debug("Starting audio processing")
-        # Convert base64 audio to WebM
+        logger.debug(f"Starting audio processing with MIME type: {mime_type}")
+        # Convert base64 audio to binary
         audio_bytes = base64.b64decode(audio_data)
         
+        # Determine file extension from MIME type
+        extension = '.webm'  # default
+        if mime_type:
+            if 'mp4' in mime_type:
+                extension = '.mp4'
+            elif 'ogg' in mime_type:
+                extension = '.ogg'
+            elif 'webm' in mime_type:
+                extension = '.webm'
+        
         # Create temporary files for audio conversion
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as webm_file:
-            # Save WebM audio to temporary file
-            webm_file.write(audio_bytes)
-            webm_file.flush()
-            webm_path = webm_file.name
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as audio_file:
+            # Save audio to temporary file
+            audio_file.write(audio_bytes)
+            audio_file.flush()
+            audio_path = audio_file.name
             
         try:
-            # Convert WebM to WAV using pydub
-            logger.debug("Converting WebM to WAV")
-            audio = AudioSegment.from_file(webm_path, format="webm")
+            # Convert audio to WAV using pydub
+            logger.debug(f"Converting {extension} audio to WAV")
+            audio = AudioSegment.from_file(audio_path, format=extension.lstrip('.'))
             
-            # Save as WAV temporarily
-            wav_path = webm_path.replace('.webm', '.wav')
+            # Export as WAV
+            wav_path = audio_path + '.wav'
             audio.export(wav_path, format="wav")
             
             # Initialize recognizer
@@ -98,7 +108,7 @@ def process_audio(audio_data):
                     tts = gtts.gTTS(ai_response)
                     
                     # Save response audio to a temporary file
-                    response_path = webm_path.replace('.webm', '_response.mp3')
+                    response_path = audio_path + '_response.mp3'
                     tts.save(response_path)
                     
                     # Read the response audio and convert to base64
@@ -126,7 +136,7 @@ def process_audio(audio_data):
         finally:
             # Clean up temporary files
             try:
-                os.unlink(webm_path)
+                os.unlink(audio_path)
                 if os.path.exists(wav_path):
                     os.unlink(wav_path)
                 if os.path.exists(response_path):
@@ -149,9 +159,10 @@ def process_audio_endpoint():
         if not data or 'audio' not in data:
             logger.error("No audio data provided")
             return jsonify({"error": "No audio data provided"}), 400
-        
-        result = process_audio(data['audio'])
-        logger.debug(f"Returning result: {result}")
+            
+        mime_type = data.get('mimeType')
+        result = process_audio(data['audio'], mime_type)
+        logger.debug("Processing completed")
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error in endpoint: {str(e)}")
