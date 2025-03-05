@@ -56,15 +56,20 @@ def process_audio(audio_data, mime_type=None):
         # Convert base64 audio to binary
         audio_bytes = base64.b64decode(audio_data)
         
-        # Determine file extension from MIME type
+        # Determine file extension and format from MIME type
         extension = '.webm'  # default
+        format_type = 'webm'
         if mime_type:
             if 'mp4' in mime_type:
-                extension = '.mp4'
+                extension = '.m4a'
+                format_type = 'm4a'
             elif 'ogg' in mime_type:
                 extension = '.ogg'
+                format_type = 'ogg'
             elif 'webm' in mime_type:
                 extension = '.webm'
+                format_type = 'webm'
+            logger.debug(f"Using format: {format_type} with extension: {extension}")
         
         # Create temporary files for audio conversion
         with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as audio_file:
@@ -74,13 +79,45 @@ def process_audio(audio_data, mime_type=None):
             audio_path = audio_file.name
             
         try:
-            # Convert audio to WAV using pydub
-            logger.debug(f"Converting {extension} audio to WAV")
-            audio = AudioSegment.from_file(audio_path, format=extension.lstrip('.'))
+            # Convert audio to WAV using pydub with explicit parameters
+            logger.debug(f"Converting {format_type} audio to WAV")
             
-            # Export as WAV
+            # Create WAV path
             wav_path = audio_path + '.wav'
-            audio.export(wav_path, format="wav")
+            
+            try:
+                # First try using pydub's built-in conversion
+                audio = AudioSegment.from_file(
+                    audio_path,
+                    format=format_type,
+                    parameters=[
+                        "-ac", "1",  # Convert to mono
+                        "-ar", "16000"  # Set sample rate to 16kHz
+                    ]
+                )
+                audio.export(wav_path, format="wav", parameters=[
+                    "-ac", "1",  # Ensure mono output
+                    "-ar", "16000",  # 16kHz sample rate
+                    "-acodec", "pcm_s16le"  # Use PCM 16-bit encoding
+                ])
+            except Exception as e:
+                logger.error(f"Pydub conversion failed: {str(e)}")
+                # If pydub fails, try direct FFmpeg conversion
+                import subprocess
+                try:
+                    logger.debug("Attempting direct FFmpeg conversion")
+                    subprocess.run([
+                        'ffmpeg',
+                        '-y',  # Overwrite output file if it exists
+                        '-i', audio_path,  # Input file
+                        '-ac', '1',  # Convert to mono
+                        '-ar', '16000',  # Set sample rate to 16kHz
+                        '-acodec', 'pcm_s16le',  # Use PCM 16-bit encoding
+                        wav_path  # Output file
+                    ], check=True, capture_output=True)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"FFmpeg conversion failed: {e.stderr.decode()}")
+                    raise ValueError(f"Audio conversion failed: {e.stderr.decode()}")
             
             # Initialize recognizer
             recognizer = sr.Recognizer()
