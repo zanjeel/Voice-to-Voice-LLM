@@ -8,7 +8,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3.10 \
     python3-pip \
+    python3-venv \
     ffmpeg \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -18,7 +21,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
@@ -28,4 +31,4 @@ ENV PORT=5000
 EXPOSE 5000
 
 # Command to run the application
-CMD ["python3", "api.py"] 
+CMD ["python", "api.py"] 
