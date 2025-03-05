@@ -58,38 +58,59 @@ def process_audio(audio_data, mime_type=None):
         
         # Create temporary directory for audio files
         temp_dir = tempfile.mkdtemp()
+        logger.debug(f"Created temporary directory: {temp_dir}")
         
-        # Determine input format and filename
-        if mime_type and 'mp4' in mime_type:
-            input_path = os.path.join(temp_dir, 'input.m4a')
-        elif mime_type and 'webm' in mime_type:
-            input_path = os.path.join(temp_dir, 'input.webm')
+        # Determine input format and filename based on MIME type
+        if mime_type:
+            logger.debug(f"Processing MIME type: {mime_type}")
+            if 'mp4' in mime_type or 'x-m4a' in mime_type:
+                input_path = os.path.join(temp_dir, 'input.m4a')
+                input_format = 'm4a'
+            elif 'webm' in mime_type:
+                input_path = os.path.join(temp_dir, 'input.webm')
+                input_format = 'webm'
+            else:
+                input_path = os.path.join(temp_dir, 'input.wav')
+                input_format = 'wav'
         else:
             input_path = os.path.join(temp_dir, 'input.wav')
+            input_format = 'wav'
             
         wav_path = os.path.join(temp_dir, 'output.wav')
         response_path = os.path.join(temp_dir, 'response.mp3')
+        
+        logger.debug(f"Input format: {input_format}")
+        logger.debug(f"Input path: {input_path}")
+        logger.debug(f"Output WAV path: {wav_path}")
         
         try:
             # Save input audio
             with open(input_path, 'wb') as f:
                 f.write(audio_bytes)
+            logger.debug(f"Saved input audio to {input_path}")
+            
+            # First, check if the input file exists and has content
+            if not os.path.exists(input_path) or os.path.getsize(input_path) == 0:
+                raise ValueError("Input audio file is empty or does not exist")
             
             # Direct FFmpeg conversion with detailed logging
             import subprocess
             try:
                 logger.debug("Starting FFmpeg conversion")
                 
-                # Convert to WAV using FFmpeg with more robust settings
+                # Convert to WAV using FFmpeg with more robust settings for mobile audio
                 convert_cmd = [
                     'ffmpeg',
                     '-y',  # Overwrite output file
+                    '-f', input_format,  # Force input format
                     '-i', input_path,  # Input file
                     '-vn',  # No video
                     '-acodec', 'pcm_s16le',  # Output codec
                     '-ac', '1',  # Mono
                     '-ar', '16000',  # 16kHz sample rate
                     '-f', 'wav',  # Force WAV format
+                    '-loglevel', 'warning',  # Show warnings and errors
+                    '-strict', 'experimental',  # Allow experimental codecs
                     wav_path  # Output file
                 ]
                 
@@ -97,10 +118,36 @@ def process_audio(audio_data, mime_type=None):
                 result = subprocess.run(convert_cmd, capture_output=True, text=True)
                 
                 if result.returncode != 0:
+                    logger.error(f"FFmpeg conversion failed with return code: {result.returncode}")
                     logger.error(f"FFmpeg stderr: {result.stderr}")
-                    raise ValueError(f"FFmpeg conversion failed: {result.stderr}")
+                    logger.error(f"FFmpeg stdout: {result.stdout}")
+                    
+                    # Try alternative conversion approach if first attempt fails
+                    logger.debug("Attempting alternative conversion approach")
+                    alt_convert_cmd = [
+                        'ffmpeg',
+                        '-y',
+                        '-i', input_path,
+                        '-vn',
+                        '-acodec', 'pcm_s16le',
+                        '-ac', '1',
+                        '-ar', '16000',
+                        '-f', 'wav',
+                        wav_path
+                    ]
+                    
+                    logger.debug(f"Running alternative FFmpeg command: {' '.join(alt_convert_cmd)}")
+                    alt_result = subprocess.run(alt_convert_cmd, capture_output=True, text=True)
+                    
+                    if alt_result.returncode != 0:
+                        logger.error(f"Alternative conversion failed: {alt_result.stderr}")
+                        raise ValueError(f"Audio conversion failed with both approaches")
                 
                 logger.debug("FFmpeg conversion successful")
+                
+                # Verify the output file exists and has content
+                if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
+                    raise ValueError("FFmpeg produced empty or missing output file")
                 
                 # Initialize recognizer
                 recognizer = sr.Recognizer()
@@ -163,6 +210,7 @@ def process_audio(audio_data, mime_type=None):
             try:
                 import shutil
                 shutil.rmtree(temp_dir)
+                logger.debug(f"Cleaned up temporary directory: {temp_dir}")
             except Exception as e:
                 logger.error(f"Error cleaning up temporary files: {str(e)}")
                 

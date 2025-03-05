@@ -1,9 +1,20 @@
 FROM python:3.12-slim
 
-# Install system dependencies including FFmpeg
+# Install system dependencies including FFmpeg and additional codecs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
+    libavcodec-extra \
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavfilter-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libswresample-dev \
+    libpostproc-dev \
+    libmp3lame0 \
+    libfdk-aac2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
