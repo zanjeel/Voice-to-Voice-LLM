@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
 
@@ -162,7 +162,9 @@ const VoiceInterface = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingIntervalRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
   const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const MOBILE_MAX_DURATION = 30000; // 30 seconds in milliseconds
 
   const startRecording = async () => {
     try {
@@ -170,17 +172,16 @@ const VoiceInterface = () => {
         audio: {
           channelCount: 1,
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: true,
+          sampleRate: isMobileDevice ? 22050 : 44100,
+          sampleSize: isMobileDevice ? 8 : 16
         } 
       });
       
       // Try simpler MIME types first, especially for mobile
-      const mimeTypes = [
-        'audio/webm',
-        'audio/mp4',
-        'audio/ogg',
-        'audio/wav'
-      ];
+      const mimeTypes = isMobileDevice ? 
+        ['audio/webm', 'audio/mp4'] :
+        ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'];
       
       let selectedMimeType = null;
       
@@ -193,7 +194,6 @@ const VoiceInterface = () => {
         }
       }
       
-      // If no supported type found, try to create a MediaRecorder without specifying type
       if (!selectedMimeType) {
         console.log('No explicit MIME type supported, trying default...');
         const recorder = new MediaRecorder(stream);
@@ -204,8 +204,12 @@ const VoiceInterface = () => {
 
       console.log('Final selected MIME type:', selectedMimeType);
       
-      // Create the MediaRecorder with minimal options
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const options = {
+        mimeType: selectedMimeType,
+        audioBitsPerSecond: isMobileDevice ? 16000 : 128000
+      };
+      
+      mediaRecorderRef.current = new MediaRecorder(stream, options);
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -220,6 +224,11 @@ const VoiceInterface = () => {
           console.log('Recording stopped, processing audio...');
           const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
           console.log('Audio blob created:', audioBlob.size, 'bytes');
+          
+          // Check file size for mobile devices
+          if (isMobileDevice && audioBlob.size > 2000000) {
+            throw new Error('Recording too long for mobile device. Please keep it shorter.');
+          }
           
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
@@ -239,21 +248,42 @@ const VoiceInterface = () => {
         }
       };
 
-      // For mobile devices, use shorter chunks
-      const timeslice = isMobileDevice ? 10000 : 60000; // 10 seconds for mobile, 60 seconds for desktop
+      const timeslice = isMobileDevice ? 5000 : 60000;
       mediaRecorderRef.current.start(timeslice);
       
-      // Set up auto-stop for mobile devices after 3 minutes
+      // Set up countdown and warning for mobile devices
       if (isMobileDevice) {
+        let timeLeft = MOBILE_MAX_DURATION;
+        
+        // Update countdown every second
+        countdownIntervalRef.current = setInterval(() => {
+          timeLeft -= 1000;
+          const secondsLeft = Math.ceil(timeLeft / 1000);
+          
+          if (secondsLeft <= 5) {
+            // Warning for last 5 seconds
+            setStatus(`⚠️ Recording will stop in ${secondsLeft} seconds...`);
+          } else if (secondsLeft <= 10) {
+            // Start showing countdown at 10 seconds
+            setStatus(`Recording... ${secondsLeft} seconds remaining`);
+          }
+        }, 1000);
+
+        // Set up auto-stop
         recordingIntervalRef.current = setTimeout(() => {
           if (isRecording) {
+            clearInterval(countdownIntervalRef.current);
             stopRecording();
+            setStatus('Processing your message...');
           }
-        }, 180000); // 3 minutes
+        }, MOBILE_MAX_DURATION);
       }
 
       setIsRecording(true);
-      setStatus('Recording... Speak now');
+      setStatus(isMobileDevice ? 
+        'Recording... Speake please' : 
+        'Recording... Speak now'
+      );
     } catch (error) {
       console.error('Error accessing microphone:', error);
       setStatus('Error accessing microphone: ' + error.message);
@@ -263,8 +293,12 @@ const VoiceInterface = () => {
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       console.log('Stopping recording...');
+      // Clear all intervals and timeouts
       if (recordingIntervalRef.current) {
         clearTimeout(recordingIntervalRef.current);
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
       }
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
@@ -272,6 +306,18 @@ const VoiceInterface = () => {
       setStatus('Processing your message...');
     }
   };
+
+  // Clean up intervals on component unmount
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearTimeout(recordingIntervalRef.current);
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+  }, []);
 
   const processAudio = async (audioData, mimeType) => {
     setIsProcessing(true);
