@@ -351,35 +351,14 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 60000,
-        validateStatus: (status) => {
-          return status === 200 || status === 204;
-        }
+        timeout: 60000
       });
 
       console.log('Server response received:', response.status);
-      console.log('Response data:', {
-        hasData: !!response.data,
-        hasAudio: response.data?.audio ? 'yes' : 'no',
-        audioLength: response.data?.audio?.length,
-        hasTranscript: response.data?.transcript ? 'yes' : 'no'
-      });
-
-      if (response.status === 204) {
-        setStatus('No audio response received. Please try again.');
-        return;
-      }
 
       if (!response.data || !response.data.audio) {
         console.error('Invalid response format:', response.data);
-        setStatus('Invalid response from server. Please try again.');
-        return;
-      }
-
-      if (response.data.error) {
-        console.error('Server returned error:', response.data.error);
-        setStatus(response.data.error);
-        return;
+        throw new Error('Invalid response from server');
       }
 
       // Set transcript if available
@@ -387,83 +366,60 @@ const VoiceInterface = () => {
         setTranscript(response.data.transcript);
       }
 
-      // Validate base64 audio data
-      const base64Regex = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-      if (!base64Regex.test(response.data.audio)) {
-        console.error('Invalid base64 audio data');
-        setStatus('Invalid audio data received. Please try again.');
-        return;
-      }
+      // Create audio element
+      const audio = new Audio();
+      let playAttempted = false;
 
-      // Create and validate audio before playing
-      const audioUrl = `data:audio/mp3;base64,${response.data.audio}`;
-      console.log('Creating audio blob from URL...');
-      
-      try {
-        // Create audio element first
-        const audio = new Audio();
-        
-        // Set up event handlers before setting source
-        audio.onerror = (e) => {
-          console.error('Audio error:', e);
-          setStatus('Error playing audio response. Please try again.');
-        };
+      // Set up event handlers
+      audio.onerror = () => {
+        console.error('Audio error event triggered');
+        if (!playAttempted) {
+          setStatus('Error loading audio. Please try again.');
+        }
+      };
 
-        audio.oncanplay = () => {
-          console.log('Audio can play now');
+      audio.oncanplaythrough = () => {
+        console.log('Audio can play through');
+        if (!playAttempted) {
+          playAttempted = true;
           setStatus('Playing response...');
-          // Try to play immediately when ready
-          audio.play().catch(e => {
-            console.error('Play failed:', e);
-            setStatus('Could not play audio. Please try again.');
-          });
-        };
+          audio.play()
+            .then(() => console.log('Playback started'))
+            .catch(e => {
+              console.error('Play failed:', e);
+              setStatus('Could not play audio. Please try again.');
+              setIsProcessing(false);
+            });
+        }
+      };
 
-        audio.onended = () => {
-          console.log('Audio playback ended');
-          setStatus('Click the button to start speaking and Click again when you are done');
-        };
+      audio.onended = () => {
+        console.log('Audio playback ended');
+        setStatus('Click the button to start speaking and Click again when you are done');
+        setIsProcessing(false);
+      };
 
-        // Set source and load
-        audio.src = audioUrl;
-        console.log('Set audio source, waiting for canplay event...');
+      // Set source and load
+      audio.src = `data:audio/mp3;base64,${response.data.audio}`;
+      
+      // Set a timeout for loading
+      const loadTimeout = setTimeout(() => {
+        if (!playAttempted) {
+          console.log('Audio loading timed out');
+          setStatus('Audio loading timed out. Please try again.');
+          setIsProcessing(false);
+        }
+      }, 5000);
 
-        // Add a timeout to detect if audio loading takes too long
-        setTimeout(() => {
-          if (audio.readyState < 3) {
-            console.log('Audio loading taking too long, trying alternative method...');
-            // Try alternative loading method
-            fetch(audioUrl)
-              .then(response => response.blob())
-              .then(blob => {
-                const objectUrl = URL.createObjectURL(blob);
-                audio.src = objectUrl;
-                console.log('Switched to object URL source');
-              })
-              .catch(error => {
-                console.error('Alternative loading failed:', error);
-                setStatus('Could not load audio. Please try again.');
-              });
-          }
-        }, 3000);
-
-      } catch (error) {
-        console.error('Audio setup error:', error);
-        setStatus('Error setting up audio playback. Please try again.');
-        throw error;
-      }
+      // Clean up timeout on successful load
+      audio.onloadeddata = () => {
+        console.log('Audio data loaded');
+        clearTimeout(loadTimeout);
+      };
 
     } catch (error) {
       console.error('Error processing audio:', error);
-      if (error.response) {
-        console.error('Error response:', error.response.status, error.response.data);
-      }
-      setStatus(
-        error.response?.data?.error || 
-        error.message || 
-        'Error processing audio. Please try again.'
-      );
-    } finally {
+      setStatus(error.message || 'Error processing audio. Please try again.');
       setIsProcessing(false);
     }
   };
