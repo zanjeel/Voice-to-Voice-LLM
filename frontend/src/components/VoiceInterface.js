@@ -164,7 +164,8 @@ const VoiceInterface = () => {
   const recordingIntervalRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  const MOBILE_MAX_DURATION = 30000; // 30 seconds in milliseconds
+  const MOBILE_MAX_DURATION = 15000; // Reduced to 15 seconds for mobile
+  const startTimeRef = useRef(null);
 
   const startRecording = async () => {
     try {
@@ -226,8 +227,8 @@ const VoiceInterface = () => {
           console.log('Audio blob created:', audioBlob.size, 'bytes');
           
           // Check file size for mobile devices
-          if (isMobileDevice && audioBlob.size > 2000000) {
-            throw new Error('Recording too long for mobile device. Please keep it shorter.');
+          if (isMobileDevice && audioBlob.size > 1000000) { // Reduced to 1MB for mobile
+            throw new Error('Recording too long. Please keep it shorter.');
           }
           
           const reader = new FileReader();
@@ -248,23 +249,30 @@ const VoiceInterface = () => {
         }
       };
 
-      const timeslice = isMobileDevice ? 5000 : 60000;
+      const timeslice = isMobileDevice ? 3000 : 60000; // Reduced to 3 seconds chunks for mobile
       mediaRecorderRef.current.start(timeslice);
       
       // Set up countdown and warning for mobile devices
       if (isMobileDevice) {
-        let timeLeft = MOBILE_MAX_DURATION;
+        startTimeRef.current = Date.now();
         
         // Update countdown every second
         countdownIntervalRef.current = setInterval(() => {
-          timeLeft -= 1000;
+          const elapsedTime = Date.now() - startTimeRef.current;
+          const timeLeft = MOBILE_MAX_DURATION - elapsedTime;
           const secondsLeft = Math.ceil(timeLeft / 1000);
           
+          if (secondsLeft <= 0) {
+            // Time's up - stop recording
+            clearInterval(countdownIntervalRef.current);
+            clearTimeout(recordingIntervalRef.current);
+            stopRecording();
+            return;
+          }
+          
           if (secondsLeft <= 5) {
-            // Warning for last 5 seconds
             setStatus(`⚠️ Recording will stop in ${secondsLeft} seconds...`);
           } else if (secondsLeft <= 10) {
-            // Start showing countdown at 10 seconds
             setStatus(`Recording... ${secondsLeft} seconds remaining`);
           }
         }, 1000);
@@ -274,14 +282,13 @@ const VoiceInterface = () => {
           if (isRecording) {
             clearInterval(countdownIntervalRef.current);
             stopRecording();
-            setStatus('Processing your message...');
           }
         }, MOBILE_MAX_DURATION);
       }
 
       setIsRecording(true);
       setStatus(isMobileDevice ? 
-        'Recording... Speake please' : 
+        'Recording...' : 
         'Recording... Speak now'
       );
     } catch (error) {
@@ -300,8 +307,14 @@ const VoiceInterface = () => {
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
       }
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      
+      try {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('Error stopping recording:', error);
+      }
+      
       setIsRecording(false);
       setStatus('Processing your message...');
     }
