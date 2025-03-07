@@ -342,6 +342,8 @@ const VoiceInterface = () => {
 
   const processAudio = async (audioData, mimeType) => {
     setIsProcessing(true);
+    let audioContext = null;
+
     try {
       console.log('Sending audio to server with MIME type:', mimeType);
       const response = await axios.post(`${API_URL}/api/process-audio`, {
@@ -351,20 +353,12 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 60000,
-        validateStatus: (status) => {
-          return status === 200 || status === 204;
-        }
+        timeout: 60000
       });
 
       console.log('Server response received:', response.status);
 
-      if (response.status === 204) {
-        throw new Error('No audio response received');
-      }
-
       if (!response.data || !response.data.audio) {
-        console.error('Invalid response format:', response.data);
         throw new Error('Invalid response from server');
       }
 
@@ -373,11 +367,53 @@ const VoiceInterface = () => {
         setTranscript(response.data.transcript);
       }
 
-      // Create audio context for mobile compatibility
+      // Simple audio playback for mobile
+      if (isMobileDevice) {
+        console.log('Using simple audio playback for mobile...');
+        const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+        
+        return new Promise((resolve, reject) => {
+          audio.onerror = (e) => {
+            console.error('Audio error:', e);
+            reject(new Error('Error playing audio'));
+          };
+
+          audio.oncanplay = async () => {
+            console.log('Audio ready to play');
+            setStatus('Playing response...');
+            try {
+              await audio.play();
+              console.log('Playback started');
+            } catch (playError) {
+              console.error('Play failed:', playError);
+              reject(playError);
+            }
+          };
+
+          audio.onended = () => {
+            console.log('Audio playback ended');
+            setStatus('Click the button to start speaking and Click again when you are done');
+            setIsProcessing(false);
+            resolve();
+          };
+
+          // Set timeout for loading
+          const loadTimeout = setTimeout(() => {
+            reject(new Error('Audio loading timeout'));
+          }, 5000);
+
+          // Clear timeout if loaded
+          audio.onloadeddata = () => {
+            clearTimeout(loadTimeout);
+          };
+        });
+      }
+
+      // Desktop playback with Web Audio API
+      console.log('Using Web Audio API for desktop...');
       const AudioContext = window.AudioContext || window.webkitAudioContext;
-      const audioContext = new AudioContext();
+      audioContext = new AudioContext();
       
-      // Convert base64 to audio buffer
       const base64 = response.data.audio;
       const binaryString = window.atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -385,64 +421,38 @@ const VoiceInterface = () => {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      try {
-        // Decode audio data
-        const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-        
-        // Create audio source
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        
-        // Handle completion
+      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      
+      return new Promise((resolve) => {
         source.onended = () => {
           console.log('Audio playback ended');
           setStatus('Click the button to start speaking and Click again when you are done');
           setIsProcessing(false);
+          resolve();
         };
 
-        // Start playback
         console.log('Starting audio playback...');
         setStatus('Playing response...');
-        
-        // Resume audio context if suspended (mobile browsers)
-        if (audioContext.state === 'suspended') {
-          await audioContext.resume();
-        }
-        
         source.start(0);
         console.log('Audio playback started');
-
-      } catch (decodeError) {
-        console.error('Audio decode error:', decodeError);
-        
-        // Fallback to traditional Audio element if decode fails
-        console.log('Trying fallback audio playback...');
-        const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
-        
-        audio.onerror = (e) => {
-          console.error('Fallback audio error:', e);
-          throw new Error('Could not play audio response');
-        };
-
-        audio.oncanplay = () => {
-          console.log('Fallback audio ready to play');
-          setStatus('Playing response...');
-        };
-
-        audio.onended = () => {
-          console.log('Fallback audio playback ended');
-          setStatus('Click the button to start speaking and Click again when you are done');
-          setIsProcessing(false);
-        };
-
-        await audio.play();
-      }
+      });
 
     } catch (error) {
       console.error('Error processing audio:', error);
       setStatus(error.message || 'Error processing audio. Please try again.');
       setIsProcessing(false);
+      
+      // Cleanup audio context if it was created
+      if (audioContext) {
+        try {
+          await audioContext.close();
+        } catch (closeError) {
+          console.error('Error closing audio context:', closeError);
+        }
+      }
     }
   };
 
