@@ -161,6 +161,8 @@ const VoiceInterface = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const recordingIntervalRef = useRef(null);
+  const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   const startRecording = async () => {
     try {
@@ -177,8 +179,6 @@ const VoiceInterface = () => {
         'audio/webm',
         'audio/mp4',
         'audio/ogg',
-        'audio/webm;codecs=opus',
-        'audio/webm;codecs=pcm',
         'audio/wav'
       ];
       
@@ -186,36 +186,26 @@ const VoiceInterface = () => {
       
       // First try to find a supported type
       for (const type of mimeTypes) {
-        try {
-          if (MediaRecorder.isTypeSupported(type)) {
-            selectedMimeType = type;
-            console.log('Found supported MIME type:', type);
-            break;
-          }
-        } catch (e) {
-          console.log('Error checking MIME type:', type, e);
+        if (MediaRecorder.isTypeSupported(type)) {
+          selectedMimeType = type;
+          console.log('Found supported MIME type:', type);
+          break;
         }
       }
       
       // If no supported type found, try to create a MediaRecorder without specifying type
       if (!selectedMimeType) {
         console.log('No explicit MIME type supported, trying default...');
-        try {
-          const recorder = new MediaRecorder(stream);
-          selectedMimeType = recorder.mimeType;
-          recorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-        } catch (e) {
-          console.error('Error creating default MediaRecorder:', e);
-          throw new Error('Your browser does not support any compatible audio recording format');
-        }
+        const recorder = new MediaRecorder(stream);
+        selectedMimeType = recorder.mimeType;
+        recorder.stop();
+        stream.getTracks().forEach(track => track.stop());
       }
 
       console.log('Final selected MIME type:', selectedMimeType);
-
+      
       // Create the MediaRecorder with minimal options
       mediaRecorderRef.current = new MediaRecorder(stream);
-      
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -228,7 +218,7 @@ const VoiceInterface = () => {
       mediaRecorderRef.current.onstop = async () => {
         try {
           console.log('Recording stopped, processing audio...');
-          const audioBlob = new Blob(audioChunksRef.current);
+          const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
           console.log('Audio blob created:', audioBlob.size, 'bytes');
           
           const reader = new FileReader();
@@ -237,7 +227,7 @@ const VoiceInterface = () => {
             try {
               const base64Audio = reader.result.split(',')[1];
               console.log('Audio converted to base64, length:', base64Audio.length);
-              await processAudio(base64Audio, mediaRecorderRef.current.mimeType);
+              await processAudio(base64Audio, selectedMimeType);
             } catch (error) {
               console.error('Error processing base64 audio:', error);
               setStatus('Error processing audio: ' + error.message);
@@ -249,7 +239,19 @@ const VoiceInterface = () => {
         }
       };
 
-      mediaRecorderRef.current.start(250);
+      // For mobile devices, use shorter chunks
+      const timeslice = isMobileDevice ? 10000 : 60000; // 10 seconds for mobile, 60 seconds for desktop
+      mediaRecorderRef.current.start(timeslice);
+      
+      // Set up auto-stop for mobile devices after 3 minutes
+      if (isMobileDevice) {
+        recordingIntervalRef.current = setTimeout(() => {
+          if (isRecording) {
+            stopRecording();
+          }
+        }, 180000); // 3 minutes
+      }
+
       setIsRecording(true);
       setStatus('Recording... Speak now');
     } catch (error) {
@@ -261,6 +263,9 @@ const VoiceInterface = () => {
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       console.log('Stopping recording...');
+      if (recordingIntervalRef.current) {
+        clearTimeout(recordingIntervalRef.current);
+      }
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
@@ -279,7 +284,7 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 30000
+        timeout: 60000 // Increased timeout for longer messages
       });
 
       console.log('Server response received');
