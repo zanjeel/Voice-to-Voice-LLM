@@ -351,13 +351,19 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 60000, // Increased timeout for longer messages
+        timeout: 60000,
         validateStatus: (status) => {
-          return status === 200 || status === 204; // Accept both 200 and 204 status codes
+          return status === 200 || status === 204;
         }
       });
 
       console.log('Server response received:', response.status);
+      console.log('Response data:', {
+        hasData: !!response.data,
+        hasAudio: response.data?.audio ? 'yes' : 'no',
+        audioLength: response.data?.audio?.length,
+        hasTranscript: response.data?.transcript ? 'yes' : 'no'
+      });
 
       if (response.status === 204) {
         setStatus('No audio response received. Please try again.');
@@ -381,35 +387,77 @@ const VoiceInterface = () => {
         setTranscript(response.data.transcript);
       }
 
+      // Validate base64 audio data
+      const base64Regex = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+      if (!base64Regex.test(response.data.audio)) {
+        console.error('Invalid base64 audio data');
+        setStatus('Invalid audio data received. Please try again.');
+        return;
+      }
+
       // Create and validate audio before playing
-      const audioBlob = await fetch(`data:audio/mp3;base64,${response.data.audio}`).then(r => r.blob());
+      const audioUrl = `data:audio/mp3;base64,${response.data.audio}`;
+      console.log('Creating audio blob from URL...');
+      
+      const audioBlob = await fetch(audioUrl)
+        .then(r => {
+          if (!r.ok) throw new Error('Failed to create audio blob');
+          return r.blob();
+        });
+
+      console.log('Audio blob created, size:', audioBlob.size, 'bytes');
+      
       if (audioBlob.size === 0) {
         throw new Error('Received empty audio response');
       }
 
-      const audio = new Audio(URL.createObjectURL(audioBlob));
+      // Create object URL and audio element
+      const objectUrl = URL.createObjectURL(audioBlob);
+      console.log('Created object URL for audio');
       
+      const audio = new Audio();
+      
+      // Set up promise-based audio loading
+      const canPlayPromise = new Promise((resolve, reject) => {
+        audio.oncanplay = resolve;
+        audio.onerror = (e) => reject(new Error('Audio loading failed: ' + e.message));
+        
+        // Set timeout for audio loading
+        setTimeout(() => reject(new Error('Audio loading timed out')), 5000);
+      });
+
       // Set up audio event handlers
       audio.onerror = (e) => {
         console.error('Error playing audio:', e);
         setStatus('Error playing audio response. Please try again.');
+        URL.revokeObjectURL(objectUrl);
       };
 
       audio.oncanplay = () => {
+        console.log('Audio can play now');
         setStatus('Playing response...');
       };
 
       audio.onended = () => {
-        URL.revokeObjectURL(audio.src); // Clean up the blob URL
+        console.log('Audio playback ended');
+        URL.revokeObjectURL(objectUrl);
         setStatus('Click the button to start speaking and Click again when you are done');
       };
 
-      // Attempt to play with error handling
+      // Set the audio source and load it
+      audio.src = objectUrl;
+      await audio.load();
+
+      // Wait for the audio to be ready
       try {
+        await canPlayPromise;
+        console.log('Audio is ready to play');
         await audio.play();
+        console.log('Audio playback started');
       } catch (playError) {
-        console.error('Error playing audio:', playError);
-        setStatus('Could not play audio response. Please try again.');
+        console.error('Error during audio setup/playback:', playError);
+        URL.revokeObjectURL(objectUrl);
+        throw new Error('Failed to play audio: ' + playError.message);
       }
 
     } catch (error) {
