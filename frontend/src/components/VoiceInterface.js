@@ -351,10 +351,24 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 60000 // Increased timeout for longer messages
+        timeout: 60000, // Increased timeout for longer messages
+        validateStatus: (status) => {
+          return status === 200 || status === 204; // Accept both 200 and 204 status codes
+        }
       });
 
-      console.log('Server response received');
+      console.log('Server response received:', response.status);
+
+      if (response.status === 204) {
+        setStatus('No audio response received. Please try again.');
+        return;
+      }
+
+      if (!response.data || !response.data.audio) {
+        console.error('Invalid response format:', response.data);
+        setStatus('Invalid response from server. Please try again.');
+        return;
+      }
 
       if (response.data.error) {
         console.error('Server returned error:', response.data.error);
@@ -362,21 +376,52 @@ const VoiceInterface = () => {
         return;
       }
 
-      setTranscript(response.data.transcript);
-      setStatus('Playing response...');
+      // Set transcript if available
+      if (response.data.transcript) {
+        setTranscript(response.data.transcript);
+      }
 
-      const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+      // Create and validate audio before playing
+      const audioBlob = await fetch(`data:audio/mp3;base64,${response.data.audio}`).then(r => r.blob());
+      if (audioBlob.size === 0) {
+        throw new Error('Received empty audio response');
+      }
+
+      const audio = new Audio(URL.createObjectURL(audioBlob));
+      
+      // Set up audio event handlers
       audio.onerror = (e) => {
         console.error('Error playing audio:', e);
-        setStatus('Error playing audio response: ' + e.message);
+        setStatus('Error playing audio response. Please try again.');
       };
+
+      audio.oncanplay = () => {
+        setStatus('Playing response...');
+      };
+
       audio.onended = () => {
+        URL.revokeObjectURL(audio.src); // Clean up the blob URL
         setStatus('Click the button to start speaking and Click again when you are done');
       };
-      await audio.play();
+
+      // Attempt to play with error handling
+      try {
+        await audio.play();
+      } catch (playError) {
+        console.error('Error playing audio:', playError);
+        setStatus('Could not play audio response. Please try again.');
+      }
+
     } catch (error) {
       console.error('Error processing audio:', error);
-      setStatus(error.response?.data?.error || 'Error processing audio: ' + error.message);
+      if (error.response) {
+        console.error('Error response:', error.response.status, error.response.data);
+      }
+      setStatus(
+        error.response?.data?.error || 
+        error.message || 
+        'Error processing audio. Please try again.'
+      );
     } finally {
       setIsProcessing(false);
     }
