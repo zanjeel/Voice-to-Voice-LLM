@@ -373,31 +373,70 @@ const VoiceInterface = () => {
         setTranscript(response.data.transcript);
       }
 
-      // Simple audio playback
-      const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+      // Create audio context for mobile compatibility
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContext();
       
-      audio.onerror = (e) => {
-        console.error('Audio error:', e);
-        setStatus('Error playing audio response');
-        setIsProcessing(false);
-      };
-
-      audio.oncanplay = () => {
-        console.log('Audio ready to play');
-        setStatus('Playing response...');
-      };
-
-      audio.onended = () => {
-        console.log('Audio playback ended');
-        setStatus('Click the button to start speaking and Click again when you are done');
-        setIsProcessing(false);
-      };
+      // Convert base64 to audio buffer
+      const base64 = response.data.audio;
+      const binaryString = window.atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
       try {
+        // Decode audio data
+        const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+        
+        // Create audio source
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        
+        // Handle completion
+        source.onended = () => {
+          console.log('Audio playback ended');
+          setStatus('Click the button to start speaking and Click again when you are done');
+          setIsProcessing(false);
+        };
+
+        // Start playback
+        console.log('Starting audio playback...');
+        setStatus('Playing response...');
+        
+        // Resume audio context if suspended (mobile browsers)
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        
+        source.start(0);
+        console.log('Audio playback started');
+
+      } catch (decodeError) {
+        console.error('Audio decode error:', decodeError);
+        
+        // Fallback to traditional Audio element if decode fails
+        console.log('Trying fallback audio playback...');
+        const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+        
+        audio.onerror = (e) => {
+          console.error('Fallback audio error:', e);
+          throw new Error('Could not play audio response');
+        };
+
+        audio.oncanplay = () => {
+          console.log('Fallback audio ready to play');
+          setStatus('Playing response...');
+        };
+
+        audio.onended = () => {
+          console.log('Fallback audio playback ended');
+          setStatus('Click the button to start speaking and Click again when you are done');
+          setIsProcessing(false);
+        };
+
         await audio.play();
-      } catch (playError) {
-        console.error('Play failed:', playError);
-        throw new Error('Could not play audio response');
       }
 
     } catch (error) {
