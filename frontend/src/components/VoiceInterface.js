@@ -399,65 +399,58 @@ const VoiceInterface = () => {
       const audioUrl = `data:audio/mp3;base64,${response.data.audio}`;
       console.log('Creating audio blob from URL...');
       
-      const audioBlob = await fetch(audioUrl)
-        .then(r => {
-          if (!r.ok) throw new Error('Failed to create audio blob');
-          return r.blob();
-        });
-
-      console.log('Audio blob created, size:', audioBlob.size, 'bytes');
-      
-      if (audioBlob.size === 0) {
-        throw new Error('Received empty audio response');
-      }
-
-      // Create object URL and audio element
-      const objectUrl = URL.createObjectURL(audioBlob);
-      console.log('Created object URL for audio');
-      
-      const audio = new Audio();
-      
-      // Set up promise-based audio loading
-      const canPlayPromise = new Promise((resolve, reject) => {
-        audio.oncanplay = resolve;
-        audio.onerror = (e) => reject(new Error('Audio loading failed: ' + e.message));
-        
-        // Set timeout for audio loading
-        setTimeout(() => reject(new Error('Audio loading timed out')), 5000);
-      });
-
-      // Set up audio event handlers
-      audio.onerror = (e) => {
-        console.error('Error playing audio:', e);
-        setStatus('Error playing audio response. Please try again.');
-        URL.revokeObjectURL(objectUrl);
-      };
-
-      audio.oncanplay = () => {
-        console.log('Audio can play now');
-        setStatus('Playing response...');
-      };
-
-      audio.onended = () => {
-        console.log('Audio playback ended');
-        URL.revokeObjectURL(objectUrl);
-        setStatus('Click the button to start speaking and Click again when you are done');
-      };
-
-      // Set the audio source and load it
-      audio.src = objectUrl;
-      await audio.load();
-
-      // Wait for the audio to be ready
       try {
-        await canPlayPromise;
-        console.log('Audio is ready to play');
-        await audio.play();
-        console.log('Audio playback started');
-      } catch (playError) {
-        console.error('Error during audio setup/playback:', playError);
-        URL.revokeObjectURL(objectUrl);
-        throw new Error('Failed to play audio: ' + playError.message);
+        // Create audio element first
+        const audio = new Audio();
+        
+        // Set up event handlers before setting source
+        audio.onerror = (e) => {
+          console.error('Audio error:', e);
+          setStatus('Error playing audio response. Please try again.');
+        };
+
+        audio.oncanplay = () => {
+          console.log('Audio can play now');
+          setStatus('Playing response...');
+          // Try to play immediately when ready
+          audio.play().catch(e => {
+            console.error('Play failed:', e);
+            setStatus('Could not play audio. Please try again.');
+          });
+        };
+
+        audio.onended = () => {
+          console.log('Audio playback ended');
+          setStatus('Click the button to start speaking and Click again when you are done');
+        };
+
+        // Set source and load
+        audio.src = audioUrl;
+        console.log('Set audio source, waiting for canplay event...');
+
+        // Add a timeout to detect if audio loading takes too long
+        setTimeout(() => {
+          if (audio.readyState < 3) {
+            console.log('Audio loading taking too long, trying alternative method...');
+            // Try alternative loading method
+            fetch(audioUrl)
+              .then(response => response.blob())
+              .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                audio.src = objectUrl;
+                console.log('Switched to object URL source');
+              })
+              .catch(error => {
+                console.error('Alternative loading failed:', error);
+                setStatus('Could not load audio. Please try again.');
+              });
+          }
+        }, 3000);
+
+      } catch (error) {
+        console.error('Audio setup error:', error);
+        setStatus('Error setting up audio playback. Please try again.');
+        throw error;
       }
 
     } catch (error) {
