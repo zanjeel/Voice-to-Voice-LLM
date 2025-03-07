@@ -164,8 +164,39 @@ const VoiceInterface = () => {
   const recordingIntervalRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  const MOBILE_MAX_DURATION = 15000; // Reduced to 15 seconds for mobile
+  const MOBILE_MAX_DURATION = 10000; // Reduced to 10 seconds for mobile
   const startTimeRef = useRef(null);
+
+  const forceStopRecording = () => {
+    console.log('Force stopping recording...');
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        // Clear all timers first
+        if (recordingIntervalRef.current) {
+          clearTimeout(recordingIntervalRef.current);
+          recordingIntervalRef.current = null;
+        }
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+
+        // Update UI state
+        setIsRecording(false);
+        setStatus('Processing your message...');
+        setIsProcessing(true);
+
+        // Stop the MediaRecorder and tracks
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('Error in force stop:', error);
+        setStatus('Error stopping recording. Please try again.');
+        setIsProcessing(false);
+        setIsRecording(false);
+      }
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -196,11 +227,7 @@ const VoiceInterface = () => {
       }
       
       if (!selectedMimeType) {
-        console.log('No explicit MIME type supported, trying default...');
-        const recorder = new MediaRecorder(stream);
-        selectedMimeType = recorder.mimeType;
-        recorder.stop();
-        stream.getTracks().forEach(track => track.stop());
+        throw new Error('No supported audio format found for your device');
       }
 
       console.log('Final selected MIME type:', selectedMimeType);
@@ -227,7 +254,7 @@ const VoiceInterface = () => {
           console.log('Audio blob created:', audioBlob.size, 'bytes');
           
           // Check file size for mobile devices
-          if (isMobileDevice && audioBlob.size > 1000000) { // Reduced to 1MB for mobile
+          if (isMobileDevice && audioBlob.size > 500000) { // Reduced to 500KB for mobile
             throw new Error('Recording too long. Please keep it shorter.');
           }
           
@@ -241,15 +268,17 @@ const VoiceInterface = () => {
             } catch (error) {
               console.error('Error processing base64 audio:', error);
               setStatus('Error processing audio: ' + error.message);
+              setIsProcessing(false);
             }
           };
         } catch (error) {
           console.error('Error handling audio data:', error);
           setStatus('Error handling audio: ' + error.message);
+          setIsProcessing(false);
         }
       };
 
-      const timeslice = isMobileDevice ? 3000 : 60000; // Reduced to 3 seconds chunks for mobile
+      const timeslice = isMobileDevice ? 1000 : 60000; // 1 second chunks for mobile
       mediaRecorderRef.current.start(timeslice);
       
       // Set up countdown and warning for mobile devices
@@ -263,10 +292,7 @@ const VoiceInterface = () => {
           const secondsLeft = Math.ceil(timeLeft / 1000);
           
           if (secondsLeft <= 0) {
-            // Time's up - stop recording
-            clearInterval(countdownIntervalRef.current);
-            clearTimeout(recordingIntervalRef.current);
-            stopRecording();
+            forceStopRecording();
             return;
           }
           
@@ -280,44 +306,26 @@ const VoiceInterface = () => {
         // Set up auto-stop
         recordingIntervalRef.current = setTimeout(() => {
           if (isRecording) {
-            clearInterval(countdownIntervalRef.current);
-            stopRecording();
+            forceStopRecording();
           }
         }, MOBILE_MAX_DURATION);
       }
 
       setIsRecording(true);
       setStatus(isMobileDevice ? 
-        'Recording...' : 
+        'Recording... (Max 10 seconds on mobile)' : 
         'Recording... Speak now'
       );
     } catch (error) {
       console.error('Error accessing microphone:', error);
       setStatus('Error accessing microphone: ' + error.message);
+      setIsRecording(false);
+      setIsProcessing(false);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      console.log('Stopping recording...');
-      // Clear all intervals and timeouts
-      if (recordingIntervalRef.current) {
-        clearTimeout(recordingIntervalRef.current);
-      }
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-      }
-      
-      try {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      } catch (error) {
-        console.error('Error stopping recording:', error);
-      }
-      
-      setIsRecording(false);
-      setStatus('Processing your message...');
-    }
+    forceStopRecording();
   };
 
   // Clean up intervals on component unmount
