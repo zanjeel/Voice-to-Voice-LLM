@@ -156,7 +156,7 @@ const LoadingDots = styled.div`
 
 const VoiceInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
-  const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done');
+  const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done. On mobiles please record short message. (Currently Desktop works for longer messages, try keeping under 5 seconds on mobile.)');
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
