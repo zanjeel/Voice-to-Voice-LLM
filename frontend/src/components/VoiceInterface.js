@@ -154,11 +154,28 @@ const LoadingDots = styled.div`
   }
 `;
 
+const PlayButton = styled.button`
+  background-color: #3498db;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  border: none;
+  margin: 10px 0;
+  cursor: pointer;
+  font-size: 1rem;
+  
+  &:hover {
+    background-color: #2980b9;
+  }
+`;
+
 const VoiceInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done');
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [needsUserInteraction, setNeedsUserInteraction] = useState(false);
+  const [pendingAudio, setPendingAudio] = useState(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingIntervalRef = useRef(null);
@@ -370,87 +387,33 @@ const VoiceInterface = () => {
       // Simple audio playback for mobile
       if (isMobileDevice) {
         console.log('Using simple audio playback for mobile...');
-        const audio = new Audio();
-        let playAttempted = false;
-        
-        return new Promise((resolve, reject) => {
-          const cleanup = () => {
-            clearTimeout(loadTimeout);
-            audio.removeEventListener('error', handleError);
-            audio.removeEventListener('loadeddata', handleLoaded);
-            audio.removeEventListener('canplaythrough', handleCanPlay);
-            audio.removeEventListener('ended', handleEnded);
-          };
-
-          const handleError = (e) => {
-            console.error('Audio error:', e);
-            cleanup();
-            setIsProcessing(false);
-            reject(new Error('Error loading audio'));
-          };
-
-          const handleLoaded = () => {
-            console.log('Audio data loaded');
-            clearTimeout(loadTimeout);
-          };
-
-          const handleCanPlay = async () => {
-            console.log('Audio can play through');
-            if (!playAttempted) {
-              playAttempted = true;
-              try {
-                setStatus('Playing response...');
-                await audio.play();
-                console.log('Playback started successfully');
-              } catch (playError) {
-                console.error('Play failed:', playError);
-                cleanup();
+        try {
+          const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+          
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            try {
+              await playPromise;
+              console.log('Audio playback started automatically');
+              
+              audio.onended = () => {
+                console.log('Audio playback ended');
+                setStatus('Click the button to start speaking and Click again when you are done');
                 setIsProcessing(false);
-                reject(new Error('Could not play audio'));
-              }
+              };
+            } catch (playError) {
+              console.error('Autoplay failed, requiring user interaction:', playError);
+              // Store the audio data and show play button
+              setPendingAudio(response.data.audio);
+              setNeedsUserInteraction(true);
+              setStatus('Tap the Play button to hear the response');
             }
-          };
-
-          const handleEnded = () => {
-            console.log('Audio playback ended');
-            cleanup();
-            setStatus('Click the button to start speaking and Click again when you are done');
-            setIsProcessing(false);
-            resolve();
-          };
-
-          // Set up event listeners
-          audio.addEventListener('error', handleError);
-          audio.addEventListener('loadeddata', handleLoaded);
-          audio.addEventListener('canplaythrough', handleCanPlay);
-          audio.addEventListener('ended', handleEnded);
-
-          // Set longer timeout for mobile
-          const loadTimeout = setTimeout(() => {
-            if (!playAttempted) {
-              console.error('Audio loading timed out, trying alternative method...');
-              // Try loading as blob URL instead
-              fetch(`data:audio/mp3;base64,${response.data.audio}`)
-                .then(r => r.blob())
-                .then(blob => {
-                  const url = URL.createObjectURL(blob);
-                  console.log('Created blob URL, retrying playback');
-                  audio.src = url;
-                })
-                .catch(error => {
-                  console.error('Alternative loading failed:', error);
-                  cleanup();
-                  setIsProcessing(false);
-                  reject(new Error('Audio loading failed'));
-                });
-            }
-          }, 8000); // Increased timeout and added fallback
-
-          // Start loading the audio
-          console.log('Setting audio source...');
-          audio.src = `data:audio/mp3;base64,${response.data.audio}`;
-          audio.load();
-        });
+          }
+          return;
+        } catch (error) {
+          console.error('Error in mobile audio playback:', error);
+          throw new Error('Could not play audio');
+        }
       }
 
       // Desktop playback with Web Audio API
@@ -500,6 +463,30 @@ const VoiceInterface = () => {
     }
   };
 
+  const playAudioWithUserInteraction = async (audioData) => {
+    try {
+      const audio = new Audio(`data:audio/mp3;base64,${audioData}`);
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        await playPromise;
+        console.log('Audio playback started with user interaction');
+        setNeedsUserInteraction(false);
+        setPendingAudio(null);
+        
+        audio.onended = () => {
+          console.log('Audio playback ended');
+          setStatus('Click the button to start speaking and Click again when you are done');
+          setIsProcessing(false);
+        };
+      }
+    } catch (error) {
+      console.error('Error playing audio with user interaction:', error);
+      setStatus('Could not play audio. Please try again.');
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <Wrapper>
       <Container>
@@ -507,10 +494,10 @@ const VoiceInterface = () => {
         <Button
           $isRecording={isRecording}
           onClick={isRecording ? stopRecording : startRecording}
-          disabled={isProcessing}
+          disabled={isProcessing && !needsUserInteraction}
         />
         <Status>
-          {isProcessing ? (
+          {isProcessing && !needsUserInteraction ? (
             <LoadingDots>
               <span></span>
               <span></span>
@@ -520,6 +507,11 @@ const VoiceInterface = () => {
             status
           )}
         </Status>
+        {needsUserInteraction && pendingAudio && (
+          <PlayButton onClick={() => playAudioWithUserInteraction(pendingAudio)}>
+            Play Response
+          </PlayButton>
+        )}
         {transcript && (
           <Transcript>
             <TranscriptTitle>Your message:</TranscriptTitle>
