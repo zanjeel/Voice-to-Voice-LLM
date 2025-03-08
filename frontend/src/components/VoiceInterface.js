@@ -304,7 +304,7 @@ const VoiceInterface = () => {
         setStatus('Error playing audio response: ' + e.message);
       };
       audio.onended = () => {
-        setStatus('Click the button to start speaking and Click again when you are done. On mobiles please record short message (Long Messages Under Process Currently');
+        setStatus('Click the button to start speaking and Click again when you are done. On mobiles please record short message (Currently Long Messages Under Process)');
       };
       await audio.play();
     } catch (error) {
