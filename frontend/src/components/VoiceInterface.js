@@ -154,9 +154,40 @@ const LoadingDots = styled.div`
   }
 `;
 
+const Instructions = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+  color: #7f8c8d;
+  font-size: 1.1rem;
+  line-height: 1.4;
+
+  span {
+    display: block;
+  }
+
+  .highlight {
+    color: #e74c3c;
+    font-weight: 500;
+  }
+
+  .desktop {
+    color: #27ae60;
+  }
+`;
+
 const VoiceInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
-  const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done. On mobiles please record short message. (Currently Desktop works for longer messages, try keeping under 5 seconds on mobile.)');
+  const [status, setStatus] = useState(
+    <Instructions>
+      <span>👆 Click the button to start speaking</span>
+      <span>👆 Click again when you are done</span>
+      <span className="highlight">📱 On mobile: Please keep messages under 5 seconds</span>
+      <span className="desktop">💻 Desktop: Works with longer messages</span>
+    </Instructions>
+  );
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -304,7 +335,14 @@ const VoiceInterface = () => {
         setStatus('Error playing audio response: ' + e.message);
       };
       audio.onended = () => {
-        setStatus('Click the button to start speaking and Click again when you are done. On mobiles please record short message. (Currently Desktop works for longer messages, try keeping under 5 seconds on mobile.)');
+        setStatus(
+          <Instructions>
+            <span>👆 Click the button to start speaking</span>
+            <span>👆 Click again when you are done</span>
+            <span className="highlight">📱 On mobile: Please keep messages under 5 seconds</span>
+            <span className="desktop">💻 Desktop: Works with longer messages</span>
+          </Instructions>
+        );
       };
       await audio.play();
     } catch (error) {
