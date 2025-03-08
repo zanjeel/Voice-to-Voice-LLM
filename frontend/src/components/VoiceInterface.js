@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
 
@@ -154,66 +154,15 @@ const LoadingDots = styled.div`
   }
 `;
 
-const PlayButton = styled.button`
-  background-color: #3498db;
-  color: white;
-  padding: 10px 20px;
-  border-radius: 20px;
-  border: none;
-  margin: 10px 0;
-  cursor: pointer;
-  font-size: 1rem;
-  
-  &:hover {
-    background-color: #2980b9;
-  }
-`;
-
 const VoiceInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [status, setStatus] = useState('Click the button to start speaking and Click again when you are done');
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [needsUserInteraction, setNeedsUserInteraction] = useState(false);
-  const [pendingAudio, setPendingAudio] = useState(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingIntervalRef = useRef(null);
-  const countdownIntervalRef = useRef(null);
   const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  const MOBILE_MAX_DURATION = 10000; // Reduced to 10 seconds for mobile
-  const startTimeRef = useRef(null);
-
-  const forceStopRecording = () => {
-    console.log('Force stopping recording...');
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      try {
-        // Clear all timers first
-        if (recordingIntervalRef.current) {
-          clearTimeout(recordingIntervalRef.current);
-          recordingIntervalRef.current = null;
-        }
-        if (countdownIntervalRef.current) {
-          clearInterval(countdownIntervalRef.current);
-          countdownIntervalRef.current = null;
-        }
-
-        // Update UI state
-        setIsRecording(false);
-        setStatus('Processing your message...');
-        setIsProcessing(true);
-
-        // Stop the MediaRecorder and tracks
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      } catch (error) {
-        console.error('Error in force stop:', error);
-        setStatus('Error stopping recording. Please try again.');
-        setIsProcessing(false);
-        setIsRecording(false);
-      }
-    }
-  };
 
   const startRecording = async () => {
     try {
@@ -221,16 +170,17 @@ const VoiceInterface = () => {
         audio: {
           channelCount: 1,
           echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: isMobileDevice ? 22050 : 44100,
-          sampleSize: isMobileDevice ? 8 : 16
+          noiseSuppression: true
         } 
       });
       
       // Try simpler MIME types first, especially for mobile
-      const mimeTypes = isMobileDevice ? 
-        ['audio/webm', 'audio/mp4'] :
-        ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'];
+      const mimeTypes = [
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg',
+        'audio/wav'
+      ];
       
       let selectedMimeType = null;
       
@@ -243,18 +193,19 @@ const VoiceInterface = () => {
         }
       }
       
+      // If no supported type found, try to create a MediaRecorder without specifying type
       if (!selectedMimeType) {
-        throw new Error('No supported audio format found for your device');
+        console.log('No explicit MIME type supported, trying default...');
+        const recorder = new MediaRecorder(stream);
+        selectedMimeType = recorder.mimeType;
+        recorder.stop();
+        stream.getTracks().forEach(track => track.stop());
       }
 
       console.log('Final selected MIME type:', selectedMimeType);
       
-      const options = {
-        mimeType: selectedMimeType,
-        audioBitsPerSecond: isMobileDevice ? 16000 : 128000
-      };
-      
-      mediaRecorderRef.current = new MediaRecorder(stream, options);
+      // Create the MediaRecorder with minimal options
+      mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -270,11 +221,6 @@ const VoiceInterface = () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: selectedMimeType });
           console.log('Audio blob created:', audioBlob.size, 'bytes');
           
-          // Check file size for mobile devices
-          if (isMobileDevice && audioBlob.size > 500000) { // Reduced to 500KB for mobile
-            throw new Error('Recording too long. Please keep it shorter.');
-          }
-          
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = async () => {
@@ -285,82 +231,50 @@ const VoiceInterface = () => {
             } catch (error) {
               console.error('Error processing base64 audio:', error);
               setStatus('Error processing audio: ' + error.message);
-              setIsProcessing(false);
             }
           };
         } catch (error) {
           console.error('Error handling audio data:', error);
           setStatus('Error handling audio: ' + error.message);
-          setIsProcessing(false);
         }
       };
 
-      const timeslice = isMobileDevice ? 1000 : 60000; // 1 second chunks for mobile
+      // For mobile devices, use shorter chunks
+      const timeslice = isMobileDevice ? 10000 : 60000; // 10 seconds for mobile, 60 seconds for desktop
       mediaRecorderRef.current.start(timeslice);
       
-      // Set up countdown and warning for mobile devices
+      // Set up auto-stop for mobile devices after 3 minutes
       if (isMobileDevice) {
-        startTimeRef.current = Date.now();
-        
-        // Update countdown every second
-        countdownIntervalRef.current = setInterval(() => {
-          const elapsedTime = Date.now() - startTimeRef.current;
-          const timeLeft = MOBILE_MAX_DURATION - elapsedTime;
-          const secondsLeft = Math.ceil(timeLeft / 1000);
-          
-          if (secondsLeft <= 0) {
-            forceStopRecording();
-            return;
-          }
-          
-          if (secondsLeft <= 5) {
-            setStatus(`⚠️ Recording will stop in ${secondsLeft} seconds...`);
-          } else if (secondsLeft <= 10) {
-            setStatus(`Recording... ${secondsLeft} seconds remaining`);
-          }
-        }, 1000);
-
-        // Set up auto-stop
         recordingIntervalRef.current = setTimeout(() => {
           if (isRecording) {
-            forceStopRecording();
+            stopRecording();
           }
-        }, MOBILE_MAX_DURATION);
+        }, 180000); // 3 minutes
       }
 
       setIsRecording(true);
-      setStatus(isMobileDevice ? 
-        'Recording... (Max 10 seconds on mobile)' : 
-        'Recording... Speak now'
-      );
+      setStatus('Recording... Speak now');
     } catch (error) {
       console.error('Error accessing microphone:', error);
       setStatus('Error accessing microphone: ' + error.message);
-      setIsRecording(false);
-      setIsProcessing(false);
     }
   };
 
   const stopRecording = () => {
-    forceStopRecording();
-  };
-
-  // Clean up intervals on component unmount
-  useEffect(() => {
-    return () => {
+    if (mediaRecorderRef.current && isRecording) {
+      console.log('Stopping recording...');
       if (recordingIntervalRef.current) {
         clearTimeout(recordingIntervalRef.current);
       }
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-      }
-    };
-  }, []);
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+      setStatus('Processing your message...');
+    }
+  };
 
   const processAudio = async (audioData, mimeType) => {
     setIsProcessing(true);
-    let audioContext = null;
-
     try {
       console.log('Sending audio to server with MIME type:', mimeType);
       const response = await axios.post(`${API_URL}/api/process-audio`, {
@@ -370,130 +284,33 @@ const VoiceInterface = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 60000
+        timeout: 60000 // Increased timeout for longer messages
       });
 
-      console.log('Server response received:', response.status);
+      console.log('Server response received');
 
-      if (!response.data || !response.data.audio) {
-        throw new Error('Invalid response from server');
+      if (response.data.error) {
+        console.error('Server returned error:', response.data.error);
+        setStatus(response.data.error);
+        return;
       }
 
-      // Set transcript if available
-      if (response.data.transcript) {
-        setTranscript(response.data.transcript);
-      }
+      setTranscript(response.data.transcript);
+      setStatus('Playing response...');
 
-      // Simple audio playback for mobile
-      if (isMobileDevice) {
-        console.log('Using simple audio playback for mobile...');
-        try {
-          const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
-          
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            try {
-              await playPromise;
-              console.log('Audio playback started automatically');
-              
-              audio.onended = () => {
-                console.log('Audio playback ended');
-                setStatus('Click the button to start speaking and Click again when you are done');
-                setIsProcessing(false);
-              };
-            } catch (playError) {
-              console.error('Autoplay failed, requiring user interaction:', playError);
-              // Store the audio data and show play button
-              setPendingAudio(response.data.audio);
-              setNeedsUserInteraction(true);
-              setStatus('Tap the Play button to hear the response');
-            }
-          }
-          return;
-        } catch (error) {
-          console.error('Error in mobile audio playback:', error);
-          throw new Error('Could not play audio');
-        }
-      }
-
-      // Desktop playback with Web Audio API
-      console.log('Using Web Audio API for desktop...');
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        audioContext = new AudioContext();
-        await audioContext.resume();
-        
-        const base64 = response.data.audio;
-        const binaryString = window.atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        
-        await new Promise((resolve, reject) => {
-          source.onended = () => {
-            console.log('Audio playback ended');
-            setStatus('Click the button to start speaking and Click again when you are done');
-            setIsProcessing(false);
-            resolve();
-          };
-
-          source.onerror = (error) => {
-            console.error('Error during audio playback:', error);
-            reject(error);
-          };
-
-          try {
-            console.log('Starting audio playback...');
-            setStatus('Playing response...');
-            source.start(0);
-            console.log('Audio playback started');
-          } catch (error) {
-            reject(error);
-          }
-        });
-      } finally {
-        if (audioContext) {
-          try {
-            await audioContext.close();
-          } catch (error) {
-            console.error('Error closing audio context:', error);
-          }
-        }
-      }
-
+      const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+      audio.onerror = (e) => {
+        console.error('Error playing audio:', e);
+        setStatus('Error playing audio response: ' + e.message);
+      };
+      audio.onended = () => {
+        setStatus('Click the button to start speaking and Click again when you are done. On mobiles please record short message (Long Messages Under Process Currently');
+      };
+      await audio.play();
     } catch (error) {
       console.error('Error processing audio:', error);
-      setStatus(error.message || 'Error processing audio. Please try again.');
-      setIsProcessing(false);
-    }
-  };
-
-  const playAudioWithUserInteraction = async (audioData) => {
-    try {
-      const audio = new Audio(`data:audio/mp3;base64,${audioData}`);
-      
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-        console.log('Audio playback started with user interaction');
-        setNeedsUserInteraction(false);
-        setPendingAudio(null);
-        
-        audio.onended = () => {
-          console.log('Audio playback ended');
-          setStatus('Click the button to start speaking and Click again when you are done');
-          setIsProcessing(false);
-        };
-      }
-    } catch (error) {
-      console.error('Error playing audio with user interaction:', error);
-      setStatus('Could not play audio. Please try again.');
+      setStatus(error.response?.data?.error || 'Error processing audio: ' + error.message);
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -505,10 +322,10 @@ const VoiceInterface = () => {
         <Button
           $isRecording={isRecording}
           onClick={isRecording ? stopRecording : startRecording}
-          disabled={isProcessing && !needsUserInteraction}
+          disabled={isProcessing}
         />
         <Status>
-          {isProcessing && !needsUserInteraction ? (
+          {isProcessing ? (
             <LoadingDots>
               <span></span>
               <span></span>
@@ -518,11 +335,6 @@ const VoiceInterface = () => {
             status
           )}
         </Status>
-        {needsUserInteraction && pendingAudio && (
-          <PlayButton onClick={() => playAudioWithUserInteraction(pendingAudio)}>
-            Play Response
-          </PlayButton>
-        )}
         {transcript && (
           <Transcript>
             <TranscriptTitle>Your message:</TranscriptTitle>
