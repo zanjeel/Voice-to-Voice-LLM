@@ -418,48 +418,59 @@ const VoiceInterface = () => {
 
       // Desktop playback with Web Audio API
       console.log('Using Web Audio API for desktop...');
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioContext = new AudioContext();
-      
-      const base64 = response.data.audio;
-      const binaryString = window.atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioContext();
+        await audioContext.resume();
+        
+        const base64 = response.data.audio;
+        const binaryString = window.atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        
+        await new Promise((resolve, reject) => {
+          source.onended = () => {
+            console.log('Audio playback ended');
+            setStatus('Click the button to start speaking and Click again when you are done');
+            setIsProcessing(false);
+            resolve();
+          };
+
+          source.onerror = (error) => {
+            console.error('Error during audio playback:', error);
+            reject(error);
+          };
+
+          try {
+            console.log('Starting audio playback...');
+            setStatus('Playing response...');
+            source.start(0);
+            console.log('Audio playback started');
+          } catch (error) {
+            reject(error);
+          }
+        });
+      } finally {
+        if (audioContext) {
+          try {
+            await audioContext.close();
+          } catch (error) {
+            console.error('Error closing audio context:', error);
+          }
+        }
       }
-
-      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      
-      return new Promise((resolve) => {
-        source.onended = () => {
-          console.log('Audio playback ended');
-          setStatus('Click the button to start speaking and Click again when you are done');
-          setIsProcessing(false);
-          resolve();
-        };
-
-        console.log('Starting audio playback...');
-        setStatus('Playing response...');
-        source.start(0);
-        console.log('Audio playback started');
-      });
 
     } catch (error) {
       console.error('Error processing audio:', error);
       setStatus(error.message || 'Error processing audio. Please try again.');
       setIsProcessing(false);
-      
-      // Cleanup audio context if it was created
-      if (audioContext) {
-        try {
-          await audioContext.close();
-        } catch (closeError) {
-          console.error('Error closing audio context:', closeError);
-        }
-      }
     }
   };
 
