@@ -370,42 +370,86 @@ const VoiceInterface = () => {
       // Simple audio playback for mobile
       if (isMobileDevice) {
         console.log('Using simple audio playback for mobile...');
-        const audio = new Audio(`data:audio/mp3;base64,${response.data.audio}`);
+        const audio = new Audio();
+        let playAttempted = false;
         
         return new Promise((resolve, reject) => {
-          audio.onerror = (e) => {
-            console.error('Audio error:', e);
-            reject(new Error('Error playing audio'));
+          const cleanup = () => {
+            clearTimeout(loadTimeout);
+            audio.removeEventListener('error', handleError);
+            audio.removeEventListener('loadeddata', handleLoaded);
+            audio.removeEventListener('canplaythrough', handleCanPlay);
+            audio.removeEventListener('ended', handleEnded);
           };
 
-          audio.oncanplay = async () => {
-            console.log('Audio ready to play');
-            setStatus('Playing response...');
-            try {
-              await audio.play();
-              console.log('Playback started');
-            } catch (playError) {
-              console.error('Play failed:', playError);
-              reject(playError);
+          const handleError = (e) => {
+            console.error('Audio error:', e);
+            cleanup();
+            setIsProcessing(false);
+            reject(new Error('Error loading audio'));
+          };
+
+          const handleLoaded = () => {
+            console.log('Audio data loaded');
+            clearTimeout(loadTimeout);
+          };
+
+          const handleCanPlay = async () => {
+            console.log('Audio can play through');
+            if (!playAttempted) {
+              playAttempted = true;
+              try {
+                setStatus('Playing response...');
+                await audio.play();
+                console.log('Playback started successfully');
+              } catch (playError) {
+                console.error('Play failed:', playError);
+                cleanup();
+                setIsProcessing(false);
+                reject(new Error('Could not play audio'));
+              }
             }
           };
 
-          audio.onended = () => {
+          const handleEnded = () => {
             console.log('Audio playback ended');
+            cleanup();
             setStatus('Click the button to start speaking and Click again when you are done');
             setIsProcessing(false);
             resolve();
           };
 
-          // Set timeout for loading
-          const loadTimeout = setTimeout(() => {
-            reject(new Error('Audio loading timeout'));
-          }, 5000);
+          // Set up event listeners
+          audio.addEventListener('error', handleError);
+          audio.addEventListener('loadeddata', handleLoaded);
+          audio.addEventListener('canplaythrough', handleCanPlay);
+          audio.addEventListener('ended', handleEnded);
 
-          // Clear timeout if loaded
-          audio.onloadeddata = () => {
-            clearTimeout(loadTimeout);
-          };
+          // Set longer timeout for mobile
+          const loadTimeout = setTimeout(() => {
+            if (!playAttempted) {
+              console.error('Audio loading timed out, trying alternative method...');
+              // Try loading as blob URL instead
+              fetch(`data:audio/mp3;base64,${response.data.audio}`)
+                .then(r => r.blob())
+                .then(blob => {
+                  const url = URL.createObjectURL(blob);
+                  console.log('Created blob URL, retrying playback');
+                  audio.src = url;
+                })
+                .catch(error => {
+                  console.error('Alternative loading failed:', error);
+                  cleanup();
+                  setIsProcessing(false);
+                  reject(new Error('Audio loading failed'));
+                });
+            }
+          }, 8000); // Increased timeout and added fallback
+
+          // Start loading the audio
+          console.log('Setting audio source...');
+          audio.src = `data:audio/mp3;base64,${response.data.audio}`;
+          audio.load();
         });
       }
 
